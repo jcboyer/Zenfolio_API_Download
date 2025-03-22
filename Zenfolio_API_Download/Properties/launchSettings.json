@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Zenfolio_API_Download": {
+      "commandName": "Project",
+      "commandLineArgs": "\"jeromechboyer@gmail.com\" \"Rosalie15!\""
+    }
+  }
+}
