@@ -1,23 +1,27 @@
 ﻿using System;
-using System.Net.Http;
-using System.Text;
-using System.Threading.Tasks;
-using System.Xml.Linq;
-using System.Security.Cryptography;
-using System.IO;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Web; // For HttpUtility.HtmlDecode
-//ZenfolioBackup.exe --download-folder "D:\Photos\Backup" --failed-downloads-file "D:\Photos\failed.txt" --skipped-albums-file "D:\Photos\skipped.txt" --login-name "myusername" --password "mypassword123"
+using System.Xml.Linq;
+
+//ZenfolioBackup.exe --download-folder "D:\Photos\Backup" --failed-downloads-file "D:\Photos\failed.txt" --skipped-albums-file "D:\Photos\skipped.txt" --login-name "myusername" --password "mypassword123" --process-failed
+//ZenfolioBackup.exe --download-folder "C:\ZenfolioBackup" --failed-downloads-file "C:\ZenfolioBackup\failed.txt" --skipped-albums-file "C:\ZenfolioBackup\skipped.txt" --login-name "jeromelouiseboyer" --password "Rosalie15!" --process-failed
+
 class Program
 {
-    private static HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+    private static HttpClient client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) }; // 2-minute timeout
     private const string ApiBaseUrl = "https://api.zenfolio.com/api/1.8/zfapi.asmx";
-    private static string authToken;
+    private static string authToken; // Class-level token
     private static string DownloadFolder;
     private static string FailedDownloadsFile;
     private static string SkippedAlbumsFile;
+    private const int MaxPathLength = 260; // Windows max path length
 
     // Debug logging helper
     static void Log(string message)
@@ -114,7 +118,7 @@ class Program
     }
 
     // Fetch group hierarchy
-    static async Task<XElement> GetGroupHierarchyAsync(string token, string loginName)
+    static async Task<XElement> GetGroupHierarchyAsync(string loginName)
     {
         var soapRequest = $"<?xml version=\"1.0\" encoding=\"utf-8\"?><soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:zf=\"http://www.zenfolio.com/api/1.8\"><soap:Body><zf:LoadGroupHierarchy><zf:loginName>{loginName}</zf:loginName></zf:LoadGroupHierarchy></soap:Body></soap:Envelope>";
         var content = new StringContent(soapRequest, Encoding.UTF8, "text/xml");
@@ -123,7 +127,7 @@ class Program
         client.DefaultRequestHeaders.Clear();
         client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
         client.DefaultRequestHeaders.Add("Accept", "text/xml");
-        client.DefaultRequestHeaders.Add("X-Zenfolio-Token", token);
+        client.DefaultRequestHeaders.Add("X-Zenfolio-Token", authToken);
 
         var response = await client.PostAsync(ApiBaseUrl, content);
         var responseString = await response.Content.ReadAsStringAsync();
@@ -143,7 +147,7 @@ class Program
     }
 
     // Load PhotoSet details to get RealmId
-    static async Task<(long RealmId, string Title)> LoadPhotoSetAsync(string token, long photoSetId)
+    static async Task<(long RealmId, string Title)> LoadPhotoSetAsync(long photoSetId)
     {
         var soapRequest = $"<?xml version=\"1.0\" encoding=\"utf-8\"?><soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:zf=\"http://www.zenfolio.com/api/1.8\"><soap:Body><zf:LoadPhotoSet><zf:photoSetId>{photoSetId}</zf:photoSetId><zf:level>Full</zf:level><zf:includePhotos>false</zf:includePhotos></zf:LoadPhotoSet></soap:Body></soap:Envelope>";
         var content = new StringContent(soapRequest, Encoding.UTF8, "text/xml");
@@ -152,7 +156,7 @@ class Program
         client.DefaultRequestHeaders.Clear();
         client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
         client.DefaultRequestHeaders.Add("Accept", "text/xml");
-        client.DefaultRequestHeaders.Add("X-Zenfolio-Token", token);
+        client.DefaultRequestHeaders.Add("X-Zenfolio-Token", authToken);
 
         try
         {
@@ -180,7 +184,7 @@ class Program
     }
 
     // Add password to keyring
-    static async Task<string> KeyringAddKeyPlainAsync(string token, string keyring, long realmId, string password)
+    static async Task<string> KeyringAddKeyPlainAsync(string keyring, long realmId, string password)
     {
         var soapRequest = $"<?xml version=\"1.0\" encoding=\"utf-8\"?><soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:zf=\"http://www.zenfolio.com/api/1.8\"><soap:Body><zf:KeyringAddKeyPlain><zf:keyring>{keyring}</zf:keyring><zf:realmId>{realmId}</zf:realmId><zf:password>{password}</zf:password></zf:KeyringAddKeyPlain></soap:Body></soap:Envelope>";
         var content = new StringContent(soapRequest, Encoding.UTF8, "text/xml");
@@ -189,7 +193,7 @@ class Program
         client.DefaultRequestHeaders.Clear();
         client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
         client.DefaultRequestHeaders.Add("Accept", "text/xml");
-        client.DefaultRequestHeaders.Add("X-Zenfolio-Token", token);
+        client.DefaultRequestHeaders.Add("X-Zenfolio-Token", authToken);
 
         try
         {
@@ -215,7 +219,7 @@ class Program
     }
 
     // Load detailed photo/video metadata
-    static async Task<(string Title, string Caption, string Copyright, string Keywords, string DateTimeOriginal)> LoadPhotoAsync(string token, long mediaId, string keyring)
+    static async Task<(string Title, string Caption, string Copyright, string Keywords, string DateTimeOriginal)> LoadPhotoAsync(long mediaId, string keyring)
     {
         var soapRequest = $"<?xml version=\"1.0\" encoding=\"utf-8\"?><soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:zf=\"http://www.zenfolio.com/api/1.8\"><soap:Body><zf:LoadPhoto><zf:photoId>{mediaId}</zf:photoId><zf:level>Full</zf:level></zf:LoadPhoto></soap:Body></soap:Envelope>";
         var content = new StringContent(soapRequest, Encoding.UTF8, "text/xml");
@@ -224,7 +228,7 @@ class Program
         client.DefaultRequestHeaders.Clear();
         client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
         client.DefaultRequestHeaders.Add("Accept", "text/xml");
-        client.DefaultRequestHeaders.Add("X-Zenfolio-Token", token);
+        client.DefaultRequestHeaders.Add("X-Zenfolio-Token", authToken);
         if (!string.IsNullOrEmpty(keyring))
             client.DefaultRequestHeaders.Add("X-Zenfolio-Keyring", keyring);
 
@@ -264,7 +268,7 @@ class Program
     }
 
     // Load photos/videos from a PhotoSet with keyring, including basic metadata, with retry logic
-    static async Task<List<(long Id, string OriginalUrl, string FileName, string Caption, string MimeType)>> LoadPhotoSetPhotosAsync(string token, long photoSetId, string keyring)
+    static async Task<List<(long Id, string OriginalUrl, string FileName, string Caption, string MimeType)>> LoadPhotoSetPhotosAsync(long photoSetId, string keyring)
     {
         var mediaItems = new List<(long Id, string OriginalUrl, string FileName, string Caption, string MimeType)>();
         int startingIndex = 0;
@@ -280,7 +284,7 @@ class Program
             client.DefaultRequestHeaders.Clear();
             client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
             client.DefaultRequestHeaders.Add("Accept", "text/xml");
-            client.DefaultRequestHeaders.Add("X-Zenfolio-Token", token);
+            client.DefaultRequestHeaders.Add("X-Zenfolio-Token", authToken);
             if (!string.IsNullOrEmpty(keyring))
                 client.DefaultRequestHeaders.Add("X-Zenfolio-Keyring", keyring);
 
@@ -341,7 +345,7 @@ class Program
                     if (ex is HttpRequestException || ex is TaskCanceledException)
                     {
                         client.Dispose();
-                        client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                        client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
                     }
                     await Task.Delay(1000 * (retry + 1));
                 }
@@ -361,7 +365,7 @@ class Program
     }
 
     // Download a photo or video and create XMP sidecar for images only, with gallery name logging
-    static async Task DownloadPhotoAsync(string token, string keyring, long mediaId, string url, string filePathBase, string mediaTitle, string caption, string copyright, string keywords, string dateTimeOriginal, string mimeType, string galleryName)
+    static async Task DownloadPhotoAsync(long mediaId, string url, string filePathBase, string mediaTitle, string caption, string copyright, string keywords, string dateTimeOriginal, string mimeType, string galleryName, string keyring)
     {
         try
         {
@@ -371,7 +375,27 @@ class Program
                 "image/jpeg" => ".jpg",
                 _ => Path.GetExtension(url)?.ToLower() ?? ".dat"
             };
-            string filePath = Path.ChangeExtension(filePathBase, extension);
+            string initialFilePath = Path.ChangeExtension(filePathBase, extension);
+            string filePath = initialFilePath;
+
+            // Check total path length and truncate folder if necessary
+            if (filePath.Length > MaxPathLength)
+            {
+                int excessLength = filePath.Length - MaxPathLength;
+                string directory = Path.GetDirectoryName(filePath);
+                string fileName = Path.GetFileName(filePath);
+                int maxDirLength = directory.Length - excessLength - 1; // -1 for separator
+                if (maxDirLength > 0)
+                {
+                    directory = directory.Substring(0, maxDirLength);
+                    filePath = Path.Combine(directory, fileName);
+                    Log($"Truncated path to fit within {MaxPathLength} characters: {filePath}");
+                }
+                else
+                {
+                    throw new PathTooLongException($"Cannot truncate path enough to fit within {MaxPathLength} characters: {initialFilePath}");
+                }
+            }
 
             if (File.Exists(filePath))
             {
@@ -382,6 +406,7 @@ class Program
             Log($"Attempting to download from: {url}");
             var response = await client.GetAsync(url);
             response.EnsureSuccessStatusCode();
+            Directory.CreateDirectory(Path.GetDirectoryName(filePath)); // Ensure directory exists
             using (var stream = await response.Content.ReadAsStreamAsync())
             using (var fileStream = File.Create(filePath))
             {
@@ -489,11 +514,11 @@ class Program
     {
         char[] invalidChars = Path.GetInvalidFileNameChars();
         string normalized = string.Join("_", name.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries)).Trim();
-        return normalized.Length > 50 ? normalized.Substring(0, 50) : normalized;
+        return normalized.Length > 100 ? normalized.Substring(0, 100) : normalized; // Segment limit
     }
 
     // Parse hierarchy and download photos/videos, excluding collections
-    static async Task ProcessHierarchyAsync(string token, XElement hierarchy)
+    static async Task ProcessHierarchyAsync(XElement hierarchy)
     {
         try
         {
@@ -530,14 +555,14 @@ class Program
                 List<(long Id, string OriginalUrl, string FileName, string Caption, string MimeType)> mediaItems;
                 try
                 {
-                    var (realmId, _) = await LoadPhotoSetAsync(token, itemId);
+                    var (realmId, _) = await LoadPhotoSetAsync(itemId);
                     Log($"PhotoSet {itemId} RealmId: {realmId}, Title: {setTitle}");
                     if (realmId != 0)
                     {
-                        keyring = await KeyringAddKeyPlainAsync(token, keyring, realmId, "jerome");
+                        keyring = await KeyringAddKeyPlainAsync(keyring, realmId, "jerome");
                     }
 
-                    mediaItems = await LoadPhotoSetPhotosAsync(token, itemId, keyring);
+                    mediaItems = await LoadPhotoSetPhotosAsync(itemId, keyring);
                     Log($"Fetched {mediaItems.Count} media items from LoadPhotoSetPhotos for {setTitle}");
                 }
                 catch (Exception ex)
@@ -554,13 +579,13 @@ class Program
                     try
                     {
                         (string mediaTitle, string caption, string copyright, string keywords, string dateTimeOriginal) =
-                            await LoadPhotoAsync(token, id, keyring);
+                            await LoadPhotoAsync(id, keyring);
                         Log($"Media {id}: Title={mediaTitle}, Caption={caption}, Copyright={copyright}, Keywords={keywords}, DateTimeOriginal={dateTimeOriginal}, MimeType={mimeType}");
 
                         string safeFileName = NormalizeFolderName(fileName);
                         string filePath = Path.Combine(DownloadFolder, fullFolderPath, safeFileName);
                         Directory.CreateDirectory(Path.GetDirectoryName(filePath));
-                        await DownloadPhotoAsync(token, keyring, id, originalUrl, filePath, mediaTitle, caption, copyright, keywords, dateTimeOriginal, mimeType, setTitle);
+                        await DownloadPhotoAsync(id, originalUrl, filePath, mediaTitle, caption, copyright, keywords, dateTimeOriginal, mimeType, setTitle, keyring);
                     }
                     catch (Exception ex)
                     {
@@ -576,6 +601,103 @@ class Program
         }
     }
 
+    // Process a single PhotoSet by ID and title
+    static async Task ProcessSinglePhotoSetAsync(long photoSetId, string expectedTitle)
+    {
+        try
+        {
+            Log($"Processing single PhotoSet ID: {photoSetId}");
+            var (realmId, setTitle) = await LoadPhotoSetAsync(photoSetId);
+            Log($"PhotoSet {photoSetId} RealmId: {realmId}, Title: {setTitle}");
+
+            if (!string.Equals(setTitle, expectedTitle, StringComparison.OrdinalIgnoreCase))
+            {
+                Log($"Warning: PhotoSet title '{setTitle}' does not match expected '{expectedTitle}'");
+            }
+
+            string keyring = "";
+            if (realmId != 0)
+            {
+                keyring = await KeyringAddKeyPlainAsync(keyring, realmId, "jerome");
+            }
+
+            var mediaItems = await LoadPhotoSetPhotosAsync(photoSetId, keyring);
+            Log($"Fetched {mediaItems.Count} media items from PhotoSet {photoSetId}");
+
+            string fullFolderPath = NormalizeFolderName(setTitle); // Use full title without truncation for single gallery
+            Log($"Full folder path for PhotoSet {photoSetId}: {fullFolderPath}");
+
+            foreach (var (id, originalUrl, fileName, basicCaption, mimeType) in mediaItems)
+            {
+                try
+                {
+                    (string mediaTitle, string caption, string copyright, string keywords, string dateTimeOriginal) =
+                        await LoadPhotoAsync(id, keyring);
+                    Log($"Media {id}: Title={mediaTitle}, Caption={caption}, Copyright={copyright}, Keywords={keywords}, DateTimeOriginal={dateTimeOriginal}, MimeType={mimeType}");
+
+                    string safeFileName = NormalizeFolderName(fileName);
+                    string filePath = Path.Combine(DownloadFolder, fullFolderPath, safeFileName);
+                    Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+                    await DownloadPhotoAsync(id, originalUrl, filePath, mediaTitle, caption, copyright, keywords, dateTimeOriginal, mimeType, setTitle, keyring);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Error processing media {id} in PhotoSet {photoSetId}: {ex.Message}");
+                    await File.AppendAllLinesAsync(FailedDownloadsFile, new[] { setTitle, $"{id}:{originalUrl}" });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Error in ProcessSinglePhotoSetAsync for PhotoSet {photoSetId}: {ex.Message}");
+        }
+    }
+
+    // Process all galleries from failed_downloads.txt
+    static async Task ProcessFailedDownloadsAsync(XElement hierarchy)
+    {
+        if (!File.Exists(FailedDownloadsFile))
+        {
+            Log($"No failed downloads file found at {FailedDownloadsFile}. Nothing to process.");
+            return;
+        }
+
+        var lines = await File.ReadAllLinesAsync(FailedDownloadsFile);
+        if (lines.Length == 0)
+        {
+            Log("Failed downloads file is empty. Nothing to process.");
+            return;
+        }
+
+        // Extract gallery titles (every odd-numbered line, assuming pairs)
+        var galleryTitles = new List<string>();
+        for (int i = 0; i < lines.Length; i += 2)
+        {
+            if (!string.IsNullOrWhiteSpace(lines[i]) && !lines[i].StartsWith("PhotoSet:"))
+            {
+                galleryTitles.Add(lines[i]);
+            }
+        }
+        galleryTitles = galleryTitles.Distinct().ToList(); // Remove duplicates
+        Log($"Found {galleryTitles.Count} unique galleries in {FailedDownloadsFile} to process.");
+
+        foreach (var galleryTitle in galleryTitles)
+        {
+            Log($"Processing failed gallery: {galleryTitle}");
+            var photoSet = hierarchy?.Descendants("{http://www.zenfolio.com/api/1.8}PhotoSet")
+                .FirstOrDefault(ps => ps.Element("{http://www.zenfolio.com/api/1.8}Title")?.Value == galleryTitle);
+            if (photoSet != null)
+            {
+                long id = long.Parse(photoSet.Element("{http://www.zenfolio.com/api/1.8}Id")?.Value ?? "0");
+                await ProcessSinglePhotoSetAsync(id, galleryTitle);
+            }
+            else
+            {
+                Log($"PhotoSet with title '{galleryTitle}' not found in hierarchy. Skipping.");
+            }
+        }
+    }
+
     static async Task Main(string[] args)
     {
         try
@@ -584,8 +706,10 @@ class Program
             DownloadFolder = @"C:\ZenfolioBackup";
             FailedDownloadsFile = Path.Combine(DownloadFolder, "failed_downloads.txt");
             SkippedAlbumsFile = Path.Combine(DownloadFolder, "skipped_albums.txt");
-            string loginName = "";
-            string password = "";
+            string loginName = "YourLogin";
+            string password = "YourPassword";
+            string galleryTitle = null;
+            bool processFailed = false;
 
             // Parse command-line arguments
             for (int i = 0; i < args.Length; i++)
@@ -606,6 +730,12 @@ class Program
                         break;
                     case "--password":
                         if (i + 1 < args.Length) password = args[++i];
+                        break;
+                    case "--gallery-title":
+                        if (i + 1 < args.Length) galleryTitle = args[++i];
+                        break;
+                    case "--process-failed":
+                        processFailed = true;
                         break;
                     default:
                         Log($"Unknown argument: {args[i]}");
@@ -637,11 +767,38 @@ class Program
             authToken = await AuthenticateAsync(loginName, password);
             Log($"Token: {authToken}");
 
-            var hierarchy = await GetGroupHierarchyAsync(authToken, loginName);
+            var hierarchy = await GetGroupHierarchyAsync(loginName);
             Log("Hierarchy fetched successfully!");
             Log("Hierarchy: " + hierarchy);
 
-            await ProcessHierarchyAsync(authToken, hierarchy);
+            if (processFailed)
+            {
+                // Process all galleries from failed_downloads.txt
+                await ProcessFailedDownloadsAsync(hierarchy);
+            }
+            else if (!string.IsNullOrEmpty(galleryTitle))
+            {
+                // Process a single gallery by title
+                var photoSet = hierarchy?.Descendants("{http://www.zenfolio.com/api/1.8}PhotoSet")
+                    .FirstOrDefault(ps => ps.Element("{http://www.zenfolio.com/api/1.8}Title")?.Value == galleryTitle);
+                if (photoSet != null)
+                {
+                    long id = long.Parse(photoSet.Element("{http://www.zenfolio.com/api/1.8}Id")?.Value ?? "0");
+                    await ProcessSinglePhotoSetAsync(id, galleryTitle);
+                }
+                else
+                {
+                    Log($"PhotoSet with title '{galleryTitle}' not found in hierarchy.");
+                    Console.WriteLine($"Error: PhotoSet '{galleryTitle}' not found.");
+                    return;
+                }
+            }
+            else
+            {
+                // Process full hierarchy if no specific options are provided
+                await ProcessHierarchyAsync(hierarchy);
+            }
+
             Log("All media processed!");
 
             if (File.Exists(FailedDownloadsFile))
@@ -660,7 +817,7 @@ class Program
         catch (Exception ex)
         {
             Log($"Main Error: {ex.Message}");
-            Console.WriteLine($"Error: {ex.Message}"); // Always show errors, even in Release mode
+            Console.WriteLine($"Error: {ex.Message}");
         }
         finally
         {

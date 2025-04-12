@@ -2,7 +2,7 @@
   "profiles": {
     "Zenfolio_API_Download": {
       "commandName": "Project",
-      "commandLineArgs": "\"jeromechboyer@gmail.com\" \"Rosalie15!\""
+      "commandLineArgs": "--download-folder \"C:\\ZenfolioBackup\" --failed-downloads-file \"C:\\ZenfolioBackup\\failed.txt\" --skipped-albums-file \"C:\\ZenfolioBackup\\skipped.txt\" --login-name \"jeromelouiseboyer\" --password \"Rosalie15!\" "
     }
   }
 }
